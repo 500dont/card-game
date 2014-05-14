@@ -22,19 +22,37 @@ class Card:
 	' Simple card representation '
 	' This will be updated with functionality for actions etc.'
 
-	def __init__(self, name, cost, kind, value, points):
+	def __init__(self, name, cost, kind, value, points, actions = None):
 		self.name = name
 		self.cost = cost
 		self.kind = kind
 		self.value = value
 		self.points = points
+		self.actions = actions
 
 	def __repr__(self):
 		return self.name
 
 	def __str__(self):
-		return ("name: {0} cost: {1} kind: {2} value: {3} points: {4}".format(
-				self.name, self.cost, self.kind, self.value, self.points))
+		return ("name: {0} cost: {1} kind: {2} value: {3} points: {4} actions: {5}".format(
+				self.name, self.cost, self.kind, self.value, self.points, self.actions))
+
+class Actions:
+	' This is super not scalable and barely encompasses the basics '
+	' It is unclear right now how this should change, probably a list of properties? '
+
+	def __init__(self, plus_cards, plus_buys, plus_actions, plus_money):
+		self.plus_cards = plus_cards
+		self.plus_buys = plus_buys
+		self.plus_actions = plus_actions
+		self.plus_money = plus_money
+
+	def __repr__(self):
+		return str(self)
+
+	def __str__(self):
+		return ("+{0} cards, +{1} actions, +{2} buys, +{3} money".format(self.plus_cards,
+			self.plus_actions, self.plus_buys, self.plus_money))
 
 class Pile:
 	' Represents a pile in play '
@@ -72,6 +90,7 @@ class Cards:
 		self.hand = []
 		self.discard = []
 		self.draw = []
+		self.in_play = []
 		self.create_starting_deck(NUM_STARTING_COPPER, NUM_STARTING_ESTATES)
 		self.draw_hand(DRAW_SIZE)
 
@@ -79,8 +98,8 @@ class Cards:
 		return str(self)
 
 	def __str__(self):
-		return ("hand: {0} \ndiscard: {1}\ndraw: {2}".format(
-				str(self.hand), str(self.discard), str(self.draw)))
+		return ("hand: {0} \ndiscard: {1}\ndraw: {2}\nin play: {3}".format(
+				str(self.hand), str(self.discard), str(self.draw), str(self.in_play)))
 
 	def create_starting_deck(self, num_copper, num_estates):
 		' Creates a standard shuffled starting deck '
@@ -91,6 +110,7 @@ class Cards:
 		shuffle(self.draw)
 
 	def draw_hand(self, draw_size = DRAW_SIZE):
+		# TODO simplify this / draw_card is essentially the same...
 		self.hand = self.draw[0:draw_size]
 		del self.draw[0:draw_size]
 		needed_cards = draw_size - len(self.hand)
@@ -102,6 +122,18 @@ class Cards:
 			# TODO: possible throw an error here (mainly for debugging)
 			print "WARNING: Cards.draw_hand returning hand of size greater than " + str(DRAW_SIZE)
 
+	def draw_card(self, num_cards):
+		draw = []
+		draw = self.draw[0:num_cards]
+		del self.draw[0:num_cards]
+		needed_cards = num_cards - len(draw)
+		if needed_cards > 0:
+			self.shuffle_cards()
+			draw += self.draw[0:needed_cards]
+			del self.draw[0:needed_cards]
+		self.hand += draw
+		print "hand after draw {0} card: {1}".format(num_cards, str(self.hand))
+
 	def shuffle_cards(self):
 		self.draw = self.discard
 		self.discard = []
@@ -112,8 +144,22 @@ class Cards:
 
 	def play_card(self, card_index):
 		played_card = self.hand.pop(card_index)
-		self.discard.append(played_card)
+		self.in_play.append(played_card)
+
+		if played_card.kind is CARD_ACTION:
+			# Handle any card drawing / discarding related actions
+			card_actions = played_card.actions
+			plus_cards = card_actions.plus_cards
+			if int(plus_cards) > 0:
+				self.draw_card(plus_cards)
 		return played_card
+
+	def end_turn(self):
+		self.discard += self.in_play
+		self.discard += self.hand
+		self.in_play = []
+		self.hand = []
+		self.draw_hand()
 
 	def get_deck(self):
 		return self.hand + self.draw + self.discard
@@ -151,9 +197,20 @@ class Player:
 		return self.cards.get_deck()
 
 	def play_card(self, card_index):
-		played_card = self.cards.play_card(card_index)
-		self.turn_options.update_for_card_played(played_card)
-		return played_card
+		card = self.cards.get_hand()[card_index]
+		print card
+		if card.kind is CARD_ACTION:
+			if self.turn_options.get_actions() > 0:
+				card_played = self.cards.play_card(card_index)
+				self.turn_options.update_for_card_played(card_played)
+				return card_played
+			else:
+				print "Not enough actions, can't play"
+				return None
+		else:
+			card_played = self.cards.play_card(card_index)
+			self.turn_options.update_for_card_played(card_played)
+			return card_played
 
 	def buy_card(self, bought_card):
 		self.cards.buy_card(bought_card)
@@ -162,7 +219,7 @@ class Player:
 
 	def end_turn(self):
 		self.turn_options.reset()
-		self.cards.draw_hand()
+		self.cards.end_turn()
 
 	def count_points(self):
 		points = 0
@@ -188,10 +245,21 @@ class TurnOptions:
 		self.buys = 1
 		self.money = 0
 
-	def update_for_card_played(self, played_card):
-		if played_card.kind is CARD_COIN:
-			self.money += played_card.value
+	def update_for_card_played(self, play_card):
+		if play_card.kind is CARD_COIN:
+			self.money += play_card.value
 			self.actions = 0
+		if play_card.kind is CARD_ACTION:
+			if self.actions > 0:
+				self.actions -= 1
+				card_actions = play_card.actions
+				self.actions += card_actions.plus_actions
+				self.money += card_actions.plus_money
+				self.buys += card_actions.plus_buys
+				print "turn options after card played " + str(self)
+			else:
+				print "no more actions, can't play card {0}".format(play_card.name)
+				return None
 
 	def update_for_card_bought(self, bought_card):
 		self.buys -= 1
@@ -273,12 +341,17 @@ class GameState:
 
 		# Play cards
 		player_hand = player_cards.get_hand()
-		while player_hand:
+		while True:
 			play = play_valid_card(player.get_turn_options(), player_hand)
+			if play == "done":
+				break
 			if play == "all":
-				print "   Playing all cards..." + str(player_hand)
+				print "   Playing all money cards..." + str(player_hand)
+				index = 0
 				for i in range(0, len(player_hand)):
-					player.play_card(0)
+					card = player.play_card(index)
+					if not card:
+						index += 1 # Skip any cards we can't play
 				break
 			else:
 				card_played = player.play_card(int(play))
@@ -287,8 +360,12 @@ class GameState:
 		while player.get_turn_options().get_buys():
 			print player.get_turn_options()
 			buy_card = buy_valid_card(player.get_turn_options(), self.get_piles())
-			player.buy_card(buy_card)
-			print "   Bought card {0}".format(buy_card)
+			if buy_card == "none":
+				print "   Not buying anything..."
+				break
+			else:
+				player.buy_card(buy_card)
+				print "   Bought card {0}".format(buy_card)
 
 		print "STATE AFTER TAKE TURN:"
 		print "   money piles : " + str(self.money_cards)
@@ -338,6 +415,8 @@ def play_valid_card(turn_options, cards):
 		index = raw_input('Index to play or \'all\': ')
 		if index == "all":
 			return "all" # Lets take_turn know to play all cards
+		if index == "done":
+			return "done"
 		if int(index) < len(cards):
 			return int(index)
 
@@ -355,6 +434,8 @@ def buy_valid_card(turn_options, piles):
 				return bought_card
 
 # Card related functions
+#    - Card(name, cost, type, value, points, actions)
+#    - Actions(plus_cards, plus_buys, plus_actions, plus_money)
 def Copper():
 	return Card("copper", 0, CARD_COIN, 1, 0)
 def Silver():
@@ -367,6 +448,10 @@ def Province():
 	return Card("province", 8, CARD_POINT, 0, 6)
 def Duchie():
 	return Card("duchie", 5, CARD_POINT, 0, 3)
+def Village():
+	return Card("village", 3, CARD_ACTION, 0, 0, Actions(1, 0, 2, 0))
+def Smithy():
+	return Card("smithy", 4, CARD_ACTION, 0, 0, Actions(3, 0, 0, 0))
 
 # Simple game piles
 def CreateMoneyPiles():
@@ -386,6 +471,8 @@ def CreateEndingPiles():
 	return cards
 def CreateCardPiles():
 	cards = []
+	cards.append(Pile(Village(), NUM_PILE_CARDS))
+	cards.append(Pile(Smithy(), NUM_PILE_CARDS))
 	return cards
 
 # Init things for game
