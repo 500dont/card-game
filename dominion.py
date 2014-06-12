@@ -3,32 +3,24 @@ from random import shuffle
 from random import randint
 from itertools import cycle
 
-# Configurations
-NUM_STARTING_COPPER = 7
-NUM_STARTING_ESTATES = 3
-
-NUM_MONEY_CARDS = 30
-NUM_POINT_CARDS = 10
-NUM_PILE_CARDS = 10
-
+# Config
 DRAW_SIZE = 5
 
-# Card types
-CARD_COIN = "coin"
-CARD_POINT = "point"
-CARD_ACTION = "action"
+# Error codes
+# TODO: Move these to a function / class?
+ERROR_NUM_CARDS_TOO_FEW = 100
+ERROR_CARD_NOT_IN_SUPPLY = 101
 
 class Card:
-	' Simple card representation '
-	' This will be updated with functionality for actions etc.'
-
-	def __init__(self, name, cost, kind, value, points, actions = None):
+	"""Represents a card."""
+	def __init__(self, name, cost, kind, value, points, actions = None, end_game = False):
 		self.name = name
 		self.cost = cost
 		self.kind = kind
 		self.value = value
 		self.points = points
 		self.actions = actions
+		self.end_game = end_game
 
 	def __repr__(self):
 		return self.name
@@ -37,29 +29,15 @@ class Card:
 		return ("name: {0} cost: {1} kind: {2} value: {3} points: {4} actions: {5}".format(
 				self.name, self.cost, self.kind, self.value, self.points, self.actions))
 
-class Actions:
-	' This is super not scalable and barely encompasses the basics '
-	' It is unclear right now how this should change, probably a list of properties? '
-
-	def __init__(self, plus_cards, plus_buys, plus_actions, plus_money):
-		self.plus_cards = plus_cards
-		self.plus_buys = plus_buys
-		self.plus_actions = plus_actions
-		self.plus_money = plus_money
-
-	def __repr__(self):
-		return str(self)
-
-	def __str__(self):
-		return ("+{0} cards, +{1} actions, +{2} buys, +{3} money".format(self.plus_cards,
-			self.plus_actions, self.plus_buys, self.plus_money))
+	def __eq__(self, other):
+		return self.name == other.name
 
 class Pile:
-	' Represents a pile in play '
-
+	"""Represents a pile in play that a player can purchase cards from or interact with."""
 	def __init__(self, card, num):
 		self.card = card
 		self.num = num
+		self.end_game = card.end_game
 
 	def __repr__(self):
 		return str(self)
@@ -67,32 +45,53 @@ class Pile:
 	def __str__(self):
 		return "[{0}, {1}]".format(self.card.name, self.num)
 
-	def buy_card(self, card_name, money):
-		if card_name == self.card.name:
-			if money >= self.card.cost and self.num > 0:
-				self.remove_cards(1)
-				return self.card
-		return None
+	def get_quantity(self):
+		"""Returns the number of cards in this pile."""
+		return self.num
+
+	def get_card(self):
+		"""Returns the card associated with this pile."""
+		return self.card
 
 	def add_cards(self, amount):
+		"""Adds a card to this pile."""
 		self.num += amount
 
 	def remove_cards(self, amount):
-		self.num -= amount
+		"""Removes a card from this pile."""
+		if self.num > amount:
+			self.num -= amount
+			return True
+		else:
+			return ERROR_NUM_CARDS_TOO_FEW
+
+	def is_same(self, card_name):
+		is_same = card_name == self.card.name
+		return is_same
 
 	def is_empty(self):
-		return self.num == 0
+		"""Returns true if there are no cards left in the pile."""
+ 		return self.num == 0
 
-class Cards:
-	' Handles operations on a players cards for hand, discard, and draw'
+	def can_end_game(self):
+		"""Returns true if the game is over when this pile is empty."""
+		return self.end_game
 
-	def __init__(self):
-		self.hand = []
-		self.discard = []
-		self.draw = []
-		self.in_play = []
-		self.create_starting_deck(NUM_STARTING_COPPER, NUM_STARTING_ESTATES)
-		self.draw_hand(DRAW_SIZE)
+class Deck:
+	"""Handles the state of a player's deck.
+
+	Members:
+	hand    -- cards in a player's hand
+	draw    -- "facedown" cards a player may draw from when necessary
+	discard -- "faceup" cards that have been played or are out of play
+	           if the player needs to draw cards and the draw is empty
+	           this pile will become the draw pile
+	in_play -- cards that are currently in play, these typically will
+	           have been played from a player's hand and get moved into
+	           the discard pile once no longer in_play
+	"""
+	def __init__(self, starting_cards):
+		self._init_deck(starting_cards, DRAW_SIZE)
 
 	def __repr__(self):
 		return str(self)
@@ -101,85 +100,120 @@ class Cards:
 		return ("hand: {0} \ndiscard: {1}\ndraw: {2}\nin play: {3}".format(
 				str(self.hand), str(self.discard), str(self.draw), str(self.in_play)))
 
-	def create_starting_deck(self, num_copper, num_estates):
-		' Creates a standard shuffled starting deck '
-		for i in range(0, num_copper):
-			self.draw.append(Copper())
-		for i in range(0, num_estates):
-			self.draw.append(Estate())
+	def _init_deck(self, starting_cards, hand_size):
+		"""Shuffles starting cards and puts hand_size into hand and the rest into draw.
+
+		Arguments:
+		num_copper  -- the number of copper to start with
+		num_estates -- the number of estates to start with
+		hand_size   -- the number of cards to go into hand
+		"""
+		print "init deck..."
+		self.hand = []
+		self.discard = []
+		self.draw = starting_cards
+		self.in_play = []
 		shuffle(self.draw)
+		self.draw_cards(DRAW_SIZE)
 
-	def draw_hand(self, draw_size = DRAW_SIZE):
-		# TODO simplify this / draw_card is essentially the same...
-		self.hand = self.draw[0:draw_size]
-		del self.draw[0:draw_size]
-		needed_cards = draw_size - len(self.hand)
-		if needed_cards > 0:
-			self.shuffle_cards()
-			self.hand = self.hand + self.draw[0:needed_cards]
-			del self.draw[0:needed_cards]
-		if len(self.hand) > DRAW_SIZE:
-			# TODO: possible throw an error here (mainly for debugging)
-			print "WARNING: Cards.draw_hand returning hand of size greater than " + str(DRAW_SIZE)
-
-	def draw_card(self, num_cards):
-		draw = []
-		draw = self.draw[0:num_cards]
+	def draw_cards(self, num_cards):
+		"""Puts num_cards into hand. Shuffles and moves discard into draw as necessary."""
+		in_draw = []
+		in_draw = self.draw[0:num_cards]
 		del self.draw[0:num_cards]
-		needed_cards = num_cards - len(draw)
+		needed_cards = num_cards - len(in_draw)
 		if needed_cards > 0:
 			self.shuffle_cards()
-			draw += self.draw[0:needed_cards]
+			in_draw += self.draw[0:needed_cards]
 			del self.draw[0:needed_cards]
-		self.hand += draw
+		self.hand += in_draw
 		print "hand after draw {0} card: {1}".format(num_cards, str(self.hand))
 
-	def shuffle_cards(self):
+	def shuffle_cards(self, check_empty = True):
+		"""Moves discard into draw and shuffles the draw cards.
+
+		Arguments:
+		check_empty -- in general cards shouldn't be shuffled unless the draw is empty
+					   this defaults to True and is mainly a saftey check, however, some
+					   cards have effects that immediately put the discard into draw so
+					   a way to disable this is necessary.
+		"""
+		if check_empty:
+			assert len(self.draw) == 0, "Trying to shuffle cards but draw is not empty."
 		self.draw = self.discard
 		self.discard = []
 		shuffle(self.draw)
 
-	def buy_card(self, card):
-		self.discard.append(card)
+	def gain_card(self, card, pile_name):
+		"""Adds the given card to the specified pile ("draw", "discard", "hand", "in_play")."""
+		if pile_name is "draw":
+			# I think in general if things are gained to the draw they go on top, this 
+			# is probably fine for now but may need to eventually change.
+			self.draw.insert(-0, card)
+		elif pile_name is "discard":
+			self.discard.insert(-0, card) 
+		elif pile_name is "hand":
+			self.hand.append(card)
+		elif pile_name is "in_play":
+			# Not sure if this case is super relevant but I think there might be "play immediately"
+			# cards which would require this and probably further logic, this is mainly here so
+			# that I don't forget about it.
+			self.in_play.append(card)
 
 	def play_card(self, card_index):
+		"""Moves the card at card_index from hand and into in_play. Returns the Card for conveinence."""
+		assert len(self.hand) > card_index, "Trying to play card not in hand index: %r" % card_index
 		played_card = self.hand.pop(card_index)
 		self.in_play.append(played_card)
-
-		if played_card.kind is CARD_ACTION:
-			# Handle any card drawing / discarding related actions
-			card_actions = played_card.actions
-			plus_cards = card_actions.plus_cards
-			if int(plus_cards) > 0:
-				self.draw_card(plus_cards)
 		return played_card
 
 	def end_turn(self):
+		"""Cleans up cards at the end of the turn.
+
+		Moves cards in hand and in_play into discard and draws a new hand."""
+		# TODO discard should be inserted on top for consistency with gain_card "draw" case.
+		# TODO some cards have effects that happen during the clean up phase, this may need
+		#      to be less specific.
 		self.discard += self.in_play
 		self.discard += self.hand
 		self.in_play = []
 		self.hand = []
-		self.draw_hand()
+		self.draw_cards(DRAW_SIZE)
+
+	def count_card(self, card_to_count):
+		"""Returns the count of the given card in a players deck."""
+		count = 0
+		for card in self.get_deck():
+			if card == card_to_count:
+				count += 1
+		return count
 
 	def get_deck(self):
-		return self.hand + self.draw + self.discard
+		"""Returns all cards in a list."""
+		return self.hand + self.draw + self.discard + self.in_play
 
 	def get_hand(self):
+		"""Returns cards in hand."""
 		return self.hand
 
 	def get_draw(self):
+		"""Returns cards in draw."""
 		return self.draw
 
 	def get_discard(self):
+		"""Returns cards in discard."""
 		return self.discard
 
-class Player:
-	' Player representation '
+	def get_in_play(self):
+		"""Returns cards in_play."""
+		return self.in_play
 
+
+class Player:
+	"""Player representation, tracks name and points."""
 	def __init__(self, name):
 		self.name = name
-		self.cards = Cards()
-		self.turn_options = TurnOptions()
+		self.points = 0
 
 	def __repr__(self):
 		return self.name
@@ -187,51 +221,126 @@ class Player:
 	def __str__(self):
 		return self.name
 
-	def get_turn_options(self):
-		return self.turn_options
+	def __eq__(self, other):
+		return self.name == other.name
 
-	def get_cards(self):
-		return self.cards
+	def update_points(self, points):
+		"""Adds the given points to the player's score. Can be negative."""
+		self.points += points
 
-	def get_deck(self):
-		return self.cards.get_deck()
+	def get_points(self):
+		"""Returns the player's points."""
+		return self.points
 
-	def play_card(self, card_index):
-		card = self.cards.get_hand()[card_index]
-		print card
-		if card.kind is CARD_ACTION:
-			if self.turn_options.get_actions() > 0:
-				card_played = self.cards.play_card(card_index)
-				self.turn_options.update_for_card_played(card_played)
-				return card_played
+	def get_name(self):
+		"""Returns the player's name."""
+		return self.name
+
+class Supply:
+	"""Contols the card piles (supply) in the game."""
+	def __init__(self, supply_piles, game_over_at = 3):
+		self.supply_piles = supply_piles
+		self.empty_piles = 0
+		self.game_over_at = game_over_at
+
+	def is_game_over(self):
+		return (self.empty_piles == self.game_over_at)
+
+	def remove_from_supply(self, card):
+		"""Removes a card from the supply.
+
+		Returns True if the game is over, False if not, and an error code otherwise.
+		Any bought or gained cards must go through this function.
+		"""
+		for pile in self.supply_piles:
+			if card == pile.get_card():
+				success = pile.remove_cards(1)
+				if success is True:
+					if pile.is_empty():
+						print "   pile is empty: " + pile.card.name
+						self.empty_piles += 1
+					return self.empty_piles == self.game_over_at
+				else:
+					return success # This will be ERROR_NUM_CARDS_TOO_FEW
+		return ERROR_CARD_NOT_IN_SUPPLY
+
+	def add_to_supply(self, card):
+		"""Adds a card to the supply.
+
+		Returns True if able to add, an error code otherwise.
+		"""
+		for pile in self.supply_piles:
+			if card == pile.get_card():
+				pile.add_cards(1)
+				return True
+		return ERROR_CARD_NOT_IN_SUPPLY
+
+class GameStateMachine:
+	"""Manages player turns and reactions and updates players' decks and Supply accordingly."""
+	def __init__(self, players, supply_piles, starting_cards):
+		self.game_state = Supply(supply_piles)
+		turn_objects_list = []
+		for player in players:
+			turn_objects_list.append(TurnObject(player, starting_cards))
+		self.turn_objects = cycle(turn_objects_list)
+		self.curr_turn_object = next(self.turn_objects)
+
+	def next_turn_object(self):
+		self.curr_turn_object = next(self.turn_objects)
+
+	def play_game(self):
+		while not self.game_state.is_game_over():
+			self.handle_turn()
+			self.next_turn_object()
+
+	def handle_turn(self):
+		curr_turn = self.curr_turn_object
+		print "---------------------------------------"
+		print "TURN STARTING FOR: " + str(curr_turn.player)
+		# Action / card playing phase
+		while True:
+			card_to_play, card = play_valid_card(curr_turn.get_deck().get_hand())
+			if card_to_play == "done":
+				break
+			if card_to_play == "all":
+				print "   Playing all money cards..."
+				curr_turn.play_all_money()
 			else:
-				print "Not enough actions, can't play"
-				return None
-		else:
-			card_played = self.cards.play_card(card_index)
-			self.turn_options.update_for_card_played(card_played)
-			return card_played
+				card_played = curr_turn.play_card(int(card_to_play))
+				self.resolve_card(card_played)
 
-	def buy_card(self, bought_card):
-		self.cards.buy_card(bought_card)
-		self.turn_options.update_for_card_bought(bought_card)
-		return bought_card
+		print "   Turn options: " + str(curr_turn)
+		# Buy cards
+		while curr_turn.get_buys():
+			card_to_buy = buy_valid_card(self.game_state.supply_piles)
+			if card_to_buy is "none":
+				print "   Not buying anything..."
+				break
+			else:
+				print "   Buying card: " + str(card_to_buy)
+				self.game_state.remove_from_supply(card_to_buy)
+				curr_turn.buy_card(card_to_buy)
+		curr_turn.end_turn()
+		print "---------------------------------------"
 
-	def end_turn(self):
-		self.turn_options.reset()
-		self.cards.end_turn()
+	def resolve_reactions(self):
+		return True
 
-	def count_points(self):
-		points = 0
-		for card in self.cards.get_deck():
-			points += card.points
-		return points
+	def resolve_card(self, card):
+		if card:
+			if card.actions:
+				card.actions(self)
 
-class TurnOptions:
-	' Tracks the options available to a player per turn '
+	def resolve_buy(self):
+		return True
 
-	def __init__(self):
-		self.reset()
+class TurnObject:
+	"""Executes a turn"""
+
+	def __init__(self, player, starting_cards):
+		self.player = player
+		self.deck = Deck(starting_cards)
+		self.reset() # Resets actions, buys, and money counts.
 
 	def __repr__(self):
 		return str(self)
@@ -245,6 +354,9 @@ class TurnOptions:
 		self.buys = 1
 		self.money = 0
 
+	def get_buys(self):
+		return self.buys
+
 	def update_for_card_played(self, play_card):
 		if play_card.kind is CARD_COIN:
 			self.money += play_card.value
@@ -252,236 +364,112 @@ class TurnOptions:
 		if play_card.kind is CARD_ACTION:
 			if self.actions > 0:
 				self.actions -= 1
-				card_actions = play_card.actions
-				self.actions += card_actions.plus_actions
-				self.money += card_actions.plus_money
-				self.buys += card_actions.plus_buys
-				print "turn options after card played " + str(self)
 			else:
-				print "no more actions, can't play card {0}".format(play_card.name)
+				print "   no more actions, can't play card {0}".format(play_card.name)
 				return None
 
 	def update_for_card_bought(self, bought_card):
 		self.buys -= 1
 		self.money -= bought_card.cost
 
-	def get_actions(self):
-		return self.actions
-
-	def get_buys(self):
-		return self.buys
-
-	def get_money(self):
-		return self.money
-
-class GameState:
-
-	def __init__(self, players, money_cards, point_cards, cards, ending_cards):
-		# Not sure if separate piles for money / point / ending / cards are
-		# entirely necessary, note that ending_cards represents cards that
-		# cause the game to end if their piles run out.
-		self.player_state = PlayerState(players)
-		self.money_cards = money_cards
-		self.point_cards = point_cards
-		self.cards = cards
-		self.ending_cards = ending_cards 
-
-	def __repr__(self):
-		return "GameState, currentPlayer {0}".format(self.player_state.get_curr_player())
-
-	def __str__(self):
-		return ("GAMESTATE\nplayers: {0}\nending: {1}\npoint: {2}\nmoney: {3}\ncards: {4}"
-					.format(str(self.player_state.get_curr_player()),
-						str(self.ending_cards), str(self.point_cards), str(self.money_cards),
-						str(self.cards)))
-
-	def get_piles(self):
-		return self.money_cards + self.point_cards + self.cards + self.ending_cards
-
-	def game_over(self):
-		empty_piles = 0
-		for pile in self.ending_cards:
-			if pile.num is 0:
-				return True
-		for pile in self.get_piles():
-			if pile.num is 0:
-				empty_piles += 1
-				if empty_piles is 3:
-					return True
-		return False
-
-	def determine_winner(self):
-		point_list = self.player_state.count_points()
-		for player, points in point_list:
-			print "{0} has {1} points".format(player.name, points)
-			print "    {0} deck:\n    {1}".format(player.name, str(player.get_deck()))
-
-	def start_game(self):
-		print "STARTING GAME - player {0} starts".format(self.player_state.get_curr_player())
-		while not self.game_over():
-			self.take_turn()
-			# todo that thing that makes sense here
-			self.player_state.get_curr_player().end_turn()
-			self.player_state.get_next_player()
-		print "GAME OVER"
-		print "----------------------------------------------"
-		self.determine_winner()
-
-	def take_turn(self):
-		player = self.player_state.get_curr_player()
-		player_options = player.get_turn_options()
-		player_cards = player.get_cards()
-
-		print "----------------------------------------------"
-		print "TAKING TURN - player {0}".format(player)
-		print "   OPTIONS - {0}".format(player_options)
-		print "   HAND - {0}".format(player_cards.get_hand())
-		print "   DRAW - {0}".format(player_cards.get_draw())
-		print "   DISC - {0}".format(player_cards.get_discard())
-
-		# Play cards
-		player_hand = player_cards.get_hand()
-		while True:
-			play = play_valid_card(player.get_turn_options(), player_hand)
-			if play == "done":
-				break
-			if play == "all":
-				print "   Playing all money cards..." + str(player_hand)
-				index = 0
-				for i in range(0, len(player_hand)):
-					card = player.play_card(index)
-					if not card:
-						index += 1 # Skip any cards we can't play
-				break
+	def play_card(self, card_index):
+		card = self.deck.get_hand()[card_index]
+		print "   playing card: " + card.name
+		if card.kind is CARD_ACTION:
+			if self.actions > 0:
+				card_played = self.deck.play_card(card_index)
+				self.update_for_card_played(card_played)
+				return card_played
 			else:
-				card_played = player.play_card(int(play))
-				print "   Playing card {0}".format(card_played.name)
-		# Buy cards
-		while player.get_turn_options().get_buys():
-			print player.get_turn_options()
-			buy_card = buy_valid_card(player.get_turn_options(), self.get_piles())
-			if buy_card == "none":
-				print "   Not buying anything..."
-				break
+				print "   Not enough actions, can't play"
+				return None
+		elif card.kind is CARD_COIN:
+			card_played = self.deck.play_card(card_index)
+			self.update_for_card_played(card_played)
+			self.actions = 0
+		else:
+			card_played = self.deck.play_card(card_index)
+			self.update_for_card_played(card_played)
+			return card_played
+
+	def play_all_money(self):
+		"""Plays all of the money cards in the current players hand."""
+		hand = self.deck.get_hand()
+		index = 0
+		for i in range(0, len(hand)):
+			card = hand[index]
+			if card.kind is CARD_COIN:
+				self.play_card(index)
 			else:
-				player.buy_card(buy_card)
-				print "   Bought card {0}".format(buy_card)
+				index += 1 # Skip non coin cards
 
-		print "STATE AFTER TAKE TURN:"
-		print "   money piles : " + str(self.money_cards)
-		print "   point piles : " + str(self.point_cards)
-		print "   card piles  : " + str(self.cards)
-		print "   ending piles: " + str(self.ending_cards)
-		print "----------------------------------------------"
+	def buy_card(self, bought_card):
+		self.deck.gain_card(bought_card, "discard")
+		self.update_for_card_bought(bought_card)
+		return bought_card
 
+	def get_deck(self):
+		return self.deck
 
-class PlayerState:
-	# TODO: move player related stuff in GameState into PlayerState?
-	def __init__(self, players):
-		self.player_list = players
-		self.player = cycle(self.player_list)
-		self.curr_player = next(self.player)
-
-	def get_next_player(self):
-		self.curr_player = next(self.player)
-		return self.curr_player
-
-	def get_curr_player(self):
-		return self.curr_player
+	def end_turn(self):
+		self.reset()
+		self.deck.end_turn()
 
 	def count_points(self):
-		scores = []
-		for player in self.player_list:
-			points = player.count_points()
-			scores.append([player, points])
-		return scores
+		points = 0
+		for card in self.deck.get_deck():
+			points += card.points
+		return points
 
 # Input functions
-# TODO: Remove these and put logic in player and game state. 
-#      (buy_valid_card)
-#      would like to change this so that first game state checks if specified card
-#      exists in game and then player attempts to purchase. If either fail they
-#      should return string error message that is used to request more input
-#      if succeeds return the card
-#
-#      (play_valid_card)
-#      player attempts to play card, if card is invalid to play return string error
-#      message
-def play_valid_card(turn_options, cards):
-	' Gets a valid index of a card to play '
-	# TODO use turn_options to verify they have actions etc.
+def play_valid_card(cards):
+	"""Returns (index, card) of a card in the given hand, or \'all\'' or \'done\'."""
 	index = -1
+	print "   Hand: " + str(cards) + "\n"
+	print "   Type \'done\' when finished playing cards."
+	msg = "   Index to play or \'all\' to play money cards: "
 	while index < 0 or index > len(cards) or index != "all":
-		index = raw_input('Index to play or \'all\': ')
+		index = raw_input(msg)
 		if index == "all":
-			return "all" # Lets take_turn know to play all cards
+			return "all", -1 # Lets take_turn know to play all cards
 		if index == "done":
-			return "done"
-		if int(index) < len(cards):
-			return int(index)
+			return "done", -1
+		if is_number(index):
+			if int(index) < len(cards):
+				return int(index), cards[int(index)]
+			if int(index) >= len(cards):
+				msg = ("   Invalid index, choose from {0}-{1}\nType \'done\' or \'all\' to play money: "
+					.format(0, len(cards)-1))
 
-def buy_valid_card(turn_options, piles):
-	' Gets a valid card to buy '
+
+def buy_valid_card(piles):
+	"""Returns a card to buy in the given supply piles or \"none\" if the user chooses to buy nothing."""
 	card = None
+	msg = "   Card to buy or \'none\': "
+	print piles
 	while not card:
-		buy_card = raw_input('Card to buy or \'none\': ')
+		buy_card = raw_input(msg)
 		if buy_card == "none":
 			card = "none"
 			return card
 		for pile in piles:
-			bought_card = pile.buy_card(buy_card, turn_options.get_money())
-			if bought_card:
-				return bought_card
+			if pile.is_same(buy_card):
+				if not pile.is_empty():
+					return pile.get_card()
+				else:
+					print piles
+					msg = "   That pile is empty, choose a different card or \'none\': "
+					break
+			msg = "   Card to buy or \'none\': "
 
-# Card related functions
-#    - Card(name, cost, type, value, points, actions)
-#    - Actions(plus_cards, plus_buys, plus_actions, plus_money)
-def Copper():
-	return Card("copper", 0, CARD_COIN, 1, 0)
-def Silver():
-	return Card("silver", 3, CARD_COIN, 2, 0)
-def Gold():
-	return Card("gold", 6, CARD_COIN, 3, 0)
-def Estate():
-	return Card("estate", 2, CARD_POINT, 0, 1)
-def Province():
-	return Card("province", 8, CARD_POINT, 0, 6)
-def Duchie():
-	return Card("duchie", 5, CARD_POINT, 0, 3)
-def Village():
-	return Card("village", 3, CARD_ACTION, 0, 0, Actions(1, 0, 2, 0))
-def Smithy():
-	return Card("smithy", 4, CARD_ACTION, 0, 0, Actions(3, 0, 0, 0))
+# Random utility functions
+def is_number(string):
+	"""Returns True if the given string is a number, false otherwise."""
+	try:
+		int(string)
+		return True
+	except ValueError:
+		return False
 
-# Simple game piles
-def CreateMoneyPiles():
-	cards = []
-	cards.append(Pile(Copper(), NUM_MONEY_CARDS))
-	cards.append(Pile(Silver(), NUM_MONEY_CARDS))
-	cards.append(Pile(Gold(), NUM_MONEY_CARDS))
-	return cards
-def CreatePointPiles():
-	cards = []
-	cards.append(Pile(Estate(), NUM_POINT_CARDS))
-	cards.append(Pile(Duchie(), NUM_POINT_CARDS))
-	return cards
-def CreateEndingPiles():
-	cards = []
-	cards.append(Pile(Province(), NUM_POINT_CARDS))
-	return cards
-def CreateCardPiles():
-	cards = []
-	cards.append(Pile(Village(), NUM_PILE_CARDS))
-	cards.append(Pile(Smithy(), NUM_PILE_CARDS))
-	return cards
 
-# Init things for game
-players = [Player("pink"), Player("blue")]
-money_cards = CreateMoneyPiles()
-point_cards = CreatePointPiles()
-cards = CreateCardPiles()
-ending_cards = CreateEndingPiles()
 
-# Start game
-gs = GameState(players, money_cards, point_cards, cards, ending_cards)
-gs.start_game()
