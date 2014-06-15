@@ -129,6 +129,15 @@ class Deck:
 		self.hand += in_draw
 		print "hand after draw {0} card: {1}".format(num_cards, str(self.hand))
 
+	def discard_cards(self, card_to_discard):
+		"""Moves card from hand into discard. Returns True if successful, otherwise False."""
+		for card_index, card in enumerate(self.hand):
+		   if card_to_discard.name == card.name:
+		      self.hand.pop(card_index)
+		      self.discard.insert(-0, card) # Put on top of discard
+		      return True
+		return False
+
 	def shuffle_cards(self, check_empty = True):
 		"""Moves discard into draw and shuffles the draw cards.
 
@@ -161,6 +170,7 @@ class Deck:
 			self.in_play.append(card)
 
 	def play_card(self, card_index):
+		#TODO: do this by card, not card index.
 		"""Moves the card at card_index from hand and into in_play. Returns the Card for conveinence."""
 		assert len(self.hand) > card_index, "Trying to play card not in hand index: %r" % card_index
 		played_card = self.hand.pop(card_index)
@@ -470,6 +480,13 @@ def is_number(string):
 		return True
 	except ValueError:
 		return False
+
+def has_card(card, list_of_cards):
+	"""Returns true if the provided card is in the list_of_cards."""
+	for c in list_of_cards:
+		if c.name == card.name:
+			return True
+	return False;
 
 
 

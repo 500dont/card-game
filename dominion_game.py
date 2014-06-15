@@ -2,6 +2,7 @@ from dominion import *
 from dominion_cards import *
 
 # Config
+# TODO: Move into some config thing
 NUM_STARTING_COPPER = 7
 NUM_STARTING_ESTATES = 3
 

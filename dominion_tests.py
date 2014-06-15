@@ -1,11 +1,12 @@
 from dominion import *
 from dominion_cards import *
 
+# TODO: Should probs move this into some config thing.
 NUM_STARTING_COPPER = 7
 NUM_STARTING_ESTATES = 3
 
 # Pile
-# TODO test all piles as per Derek's suggestion
+# TODO: Test all piles as per Derek's suggestion
 estate_card = Estate()
 estate_pile = Pile(estate_card, NUM_POINT_CARDS)
 # Get quantitiy
